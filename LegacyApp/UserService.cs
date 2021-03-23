@@ -45,9 +45,7 @@ namespace LegacyApp
                 Console.WriteLine(String.Format("UserService.AddUser: clientRepository.GetById({0}) thrown exception. Message: {1}", clientId, e.Message));
                 return false;
             }
-
            
-
             var user = new User
             {
                 Client = client,
