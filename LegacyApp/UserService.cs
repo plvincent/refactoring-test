@@ -1,4 +1,5 @@
-﻿using System;
+﻿using LegacyApp.CreditLimit;
+using System;
 
 namespace LegacyApp
 {
@@ -11,18 +12,14 @@ namespace LegacyApp
                 return false;
             }
 
-            if (email.Contains("@") && !email.Contains("."))
+            // Moved the email validation logic inside its own class (Single Responsability)
+            if(!EmailValidation.IsValid(email))            
             {
                 return false;
             }
 
-            var now = DateTime.Now;
-            int age = now.Year - dateOfBirth.Year;
-
-            if (now.Month < dateOfBirth.Month || (now.Month == dateOfBirth.Month && now.Day < dateOfBirth.Day))
-            {
-                age--;
-            }
+            // Moved the age calculation logic inside its own class (Single Responsability)
+            int age = Age.GetAge(dateOfBirth);
 
             if (age < 21)
             {
@@ -30,7 +27,26 @@ namespace LegacyApp
             }
 
             var clientRepository = new ClientRepository();
-            var client = clientRepository.GetById(clientId);
+
+            Client client;
+
+            try
+            {
+                client = clientRepository.GetById(clientId);
+
+                if (client == null)
+                {
+                    Console.WriteLine(String.Format("UserService.AddUser: clientRepository.GetById({0}) returned NULL", clientId));
+                    return false;
+                }
+            }
+            catch(Exception e)
+            {
+                Console.WriteLine(String.Format("UserService.AddUser: clientRepository.GetById({0}) thrown exception. Message: {1}", clientId, e.Message));
+                return false;
+            }
+
+           
 
             var user = new User
             {
@@ -41,34 +57,15 @@ namespace LegacyApp
                 Surname = surname
             };
 
-            if (client.Name == "VeryImportantClient")
-            {
-                // Skip credit chek
-                user.HasCreditLimit = false;
-            }
-            else if (client.Name == "ImportantClient")
-            {
-                // Do credit check and double credit limit
-                user.HasCreditLimit = true;
-                using (var userCreditService = new UserCreditServiceClient())
-                {
-                    var creditLimit = userCreditService.GetCreditLimit(user.Firstname, user.Surname, user.DateOfBirth);
-                    creditLimit = creditLimit * 2;
-                    user.CreditLimit = creditLimit;
-                }
-            }
-            else
-            {
-                // Do credit check
-                user.HasCreditLimit = true;
-                using (var userCreditService = new UserCreditServiceClient())
-                {
-                    var creditLimit = userCreditService.GetCreditLimit(user.Firstname, user.Surname, user.DateOfBirth);
-                    user.CreditLimit = creditLimit;
-                }
-            }
+            // Implemented a Strategy Pattern.
+            ICreditLimitStrategy creditLimitStrategy = CreditLimitStrategy.Get(client.ClientStatus);           
 
-            if (user.HasCreditLimit && user.CreditLimit < 500)
+            user.HasCreditLimit = creditLimitStrategy.HasCreditLimit();
+
+            if (user.HasCreditLimit)
+                user.CreditLimit = creditLimitStrategy.CreditLimit(user);
+
+            if(IsUserCreditTooLow(user.HasCreditLimit, user.CreditLimit))
             {
                 return false;
             }
@@ -76,6 +73,15 @@ namespace LegacyApp
             UserDataAccess.AddUser(user);
 
             return true;
+        }
+
+        // Easier to unit test
+        private bool IsUserCreditTooLow(bool hasCreditLimit, int creditLimit)
+        {
+            if (hasCreditLimit && creditLimit < 500)
+                return true;
+            else
+                return false;
         }
     }
 }
